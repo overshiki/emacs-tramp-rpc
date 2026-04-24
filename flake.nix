@@ -31,6 +31,50 @@
       ];
     in
     {
+      overlays.default = _: super: {
+        emacs-tramp-rpc-server = super.callPackage ./default.nix { };
+
+        emacsPackagesFor =
+          emacs:
+          ((super.emacsPackagesFor emacs).overrideScope (
+            eself: _: {
+              tramp-rpc = eself.callPackage (
+                {
+                  archs ? with super.pkgsCross; [
+                    musl64
+                    aarch64-multiplatform-musl
+                  ],
+                  lib,
+                  melpaBuild,
+                  tramp,
+                  msgpack,
+                }:
+                let
+                  version = builtins.readFile (
+                    super.runCommand "get-package-version" { } ''
+                      ${lib.getExe' emacs "emacs"} --batch -Q --eval "(progn (require 'lisp-mnt) (with-temp-buffer (insert-file-contents \"${self}/lisp/tramp-rpc.el\") (princ (lm-header \"version\"))))" > $out
+                    ''
+                  );
+                in
+                melpaBuild rec {
+                  pname = "tramp-rpc";
+                  inherit version;
+                  src = self;
+                  files = ''("lisp/*")'';
+
+                  postInstall = lib.concatMapStringsSep "\n" (arch: ''
+                    install -m755 -D ${arch.emacs-tramp-rpc-server}/bin/tramp-rpc-server $out/share/emacs/site-lisp/elpa/${pname}-${version}/binaries/${arch.stdenv.hostPlatform.system}/tramp-rpc-server
+                  '') archs;
+
+                  packageRequires = [
+                    tramp
+                    msgpack
+                  ];
+                }
+              ) { };
+            }
+          ));
+      };
       packages = forAllSystems (
         system:
         let
